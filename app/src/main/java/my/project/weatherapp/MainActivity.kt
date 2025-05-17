@@ -38,6 +38,10 @@ import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.workDataOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import my.project.weatherapp.Constants.TAG
+import my.project.weatherapp.Constants.getCurrentTimeStamp
 import my.project.weatherapp.databinding.ActivityMainBinding
 import my.project.weatherapp.models.WeatherResponse
 import my.project.weatherapp.network.WeatherService
@@ -46,6 +50,14 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
+import javax.mail.Authenticator
+import javax.mail.Message
+import javax.mail.MessagingException
+import javax.mail.PasswordAuthentication
+import javax.mail.Session
+import javax.mail.Transport
+import javax.mail.internet.InternetAddress
+import javax.mail.internet.MimeMessage
 
 class MainActivity : AppCompatActivity() {
 
@@ -66,46 +78,10 @@ class MainActivity : AppCompatActivity() {
         mSharedPreferences = getSharedPreferences(Constants.PREFERENCE_NAME, Context.MODE_PRIVATE)
         setUpUI()
         isLocationPermissionGranted()
-        scheduleDailyWeatherUploads(this@MainActivity)
-    }
 
-
-    private fun scheduleDailyWeatherUploads(context: Context) {
-        val workerConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-
-        // --- Schedule for 6 AM ---
-        val initialDelay6AM = Constants.getInitialDelayMillis(6) // 6 AM
-        val workRequest6AM = OneTimeWorkRequestBuilder<WeatherUploadWorker>()
-            .setInitialDelay(initialDelay6AM, TimeUnit.MILLISECONDS)
-            .setConstraints(workerConstraints)
-            .addTag("weather_upload_6am_tag") // Optional tag
-            .setInputData(workDataOf("SCHEDULED_HOUR" to 6)) // Pass the scheduled hour
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "weather_upload_6am_work", // Unique name for the 6 AM worker
-            ExistingWorkPolicy.REPLACE, // Replace if existing, ensures the latest schedule
-            workRequest6AM
-        )
-        Log.d("WorkScheduler", "6 AM WeatherUploadWorker scheduled with initial delay: $initialDelay6AM ms (approx ${TimeUnit.MILLISECONDS.toHours(initialDelay6AM)} hours)")
-
-        // --- Schedule for 6 PM (18:00) ---
-        val initialDelay6PM = Constants.getInitialDelayMillis(18) // 6 PM is 18 in 24-hour format
-        val workRequest6PM = OneTimeWorkRequestBuilder<WeatherUploadWorker>()
-            .setInitialDelay(initialDelay6PM, TimeUnit.MILLISECONDS)
-            .setConstraints(workerConstraints)
-            .addTag("weather_upload_6pm_tag") // Optional tag
-            .setInputData(workDataOf("SCHEDULED_HOUR" to 18)) // Pass the scheduled hour
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "weather_upload_6pm_work", // Unique name for the 6 PM worker
-            ExistingWorkPolicy.REPLACE, // Replace if existing
-            workRequest6PM
-        )
-        Log.d("WorkScheduler", "6 PM WeatherUploadWorker scheduled with initial delay: $initialDelay6PM ms (approx ${TimeUnit.MILLISECONDS.toHours(initialDelay6PM)} hours)")
+        binding?.btnUploadToCloud?.setOnClickListener {
+            uploadDataToCloud()
+        }
     }
 
     private fun isLocationEnabled(): Boolean{
@@ -293,7 +269,7 @@ class MainActivity : AppCompatActivity() {
             binding?.tvSunsetTime?.text = unixTime(weatherList.sys.sunset)
             binding?.tvMax?.text = weatherList.main.temp_max.toString() + " max"
             binding?.tvMin?.text = weatherList.main.temp_min.toString() + " min"
-            binding?.currentTime?.text = Constants.getCurrentTimeStamp()
+            binding?.tvCurrentTime?.text = Constants.getCurrentTimeStamp()
         }
 
     }
@@ -335,7 +311,70 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun uploadDataToCloud() {
+        lifecycleScope.launch { // Make sure you are in a CoroutineScope (like lifecycleScope in an Activity/Fragment)
+            withContext(Dispatchers.IO) {
+                try {
+                    sendMail()
+                } catch (e: MessagingException) {
+                    Log.e(TAG, "Error sending email (MessagingException): ${e.message}", e)
+                    // Handle MessagingException (e.g., show a user-friendly message)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unexpected error sending email: ${e.message}", e)
+                    // Handle other exceptions
+                }
+            }
+            // This block will execute after the email sending is complete (on the main thread)
+            Log.d(TAG, "Email sending process initiated in the background.")
+            // Optionally, update UI to indicate that email sending is in progress
+        }
+    }
 
+    private fun sendMail() {
+        // IMPORTANT: Storing credentials directly in code is a security risk.
+        // Consider using a backend service to handle email sending or more secure credential storage.
+        val username = "assasin.blood1@gmail.com" // Your Gmail address
+        val password = "qpnf sqoo tpzg ahgs"  // Your App Password for Gmail
+
+        val props = Properties().apply {
+            put("mail.smtp.auth", "true")
+            put("mail.smtp.starttls.enable", "true") // TLS is required
+            put("mail.smtp.host", "smtp.gmail.com")
+            put("mail.smtp.port", "587") // SMTP port for TLS
+        }
+
+        val session = Session.getInstance(props, object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication {
+                return PasswordAuthentication(username, password)
+            }
+        })
+
+        try {
+            val message = MimeMessage(session).apply {
+                setFrom(InternetAddress(username))
+                // You can add multiple recipients
+                setRecipients(
+                    Message.RecipientType.TO,
+                    InternetAddress.parse("negiharsh12@gmail.com, assasin.blood1@gmail.com") // Recipient email addresses
+                )
+                subject = "Weather Details: ${getCurrentTimeStamp()}" // Dynamic subject
+                val weatherResponseJsonString = mSharedPreferences
+                    .getString(Constants.WEATHER_RESPONSE_DATA,"")
+                setText(weatherResponseJsonString) // Email body
+            }
+
+            Log.d(TAG, "Attempting to send email...")
+            Transport.send(message) // This is a blocking network call
+            Log.i(TAG, "Email sent successfully to recipients.")
+
+        } catch (e: MessagingException) {
+            Log.e(TAG, "Failed to send email due to MessagingException: ${e.message}", e)
+            throw e // Re-throw to be caught by doWork's try-catch
+        } catch (e: Exception) {
+            Log.e(TAG, "An unexpected error occurred during sendEmail: ${e.message}", e)
+            throw e // Re-throw
+        }
+    }
 
     override fun onDestroy() {
         super.onDestroy()
