@@ -27,17 +27,20 @@ import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.gson.Gson
-import com.google.gson.JsonObject
 import com.karumi.dexter.Dexter
 import com.karumi.dexter.MultiplePermissionsReport
 import com.karumi.dexter.PermissionToken
 import com.karumi.dexter.listener.PermissionRequest
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.workDataOf
 import my.project.weatherapp.databinding.ActivityMainBinding
 import my.project.weatherapp.models.WeatherResponse
-import my.project.weatherapp.network.ScheduledWeatherService
 import my.project.weatherapp.network.WeatherService
-import org.json.JSONObject
 import retrofit2.*
 import retrofit2.converter.gson.GsonConverterFactory
 import java.text.SimpleDateFormat
@@ -63,20 +66,46 @@ class MainActivity : AppCompatActivity() {
         mSharedPreferences = getSharedPreferences(Constants.PREFERENCE_NAME, Context.MODE_PRIVATE)
         setUpUI()
         isLocationPermissionGranted()
+        scheduleDailyWeatherUploads(this@MainActivity)
+    }
 
-        val workerConstraints = androidx.work.Constraints.Builder()
+
+    private fun scheduleDailyWeatherUploads(context: Context) {
+        val workerConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
-        val initialDelayMillis = Constants.getInitialDelay(6)
-        val periodWorkRequest = PeriodicWorkRequestBuilder<WeatherUploadWorker>(12, TimeUnit.HOURS)
-            .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+
+        // --- Schedule for 6 AM ---
+        val initialDelay6AM = Constants.getInitialDelayMillis(6) // 6 AM
+        val workRequest6AM = OneTimeWorkRequestBuilder<WeatherUploadWorker>()
+            .setInitialDelay(initialDelay6AM, TimeUnit.MILLISECONDS)
             .setConstraints(workerConstraints)
+            .addTag("weather_upload_6am_tag") // Optional tag
+            .setInputData(workDataOf("SCHEDULED_HOUR" to 6)) // Pass the scheduled hour
             .build()
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "weather_upload_work",
-            ExistingPeriodicWorkPolicy.KEEP,
-            periodWorkRequest
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "weather_upload_6am_work", // Unique name for the 6 AM worker
+            ExistingWorkPolicy.REPLACE, // Replace if existing, ensures the latest schedule
+            workRequest6AM
         )
+        Log.d("WorkScheduler", "6 AM WeatherUploadWorker scheduled with initial delay: $initialDelay6AM ms (approx ${TimeUnit.MILLISECONDS.toHours(initialDelay6AM)} hours)")
+
+        // --- Schedule for 6 PM (18:00) ---
+        val initialDelay6PM = Constants.getInitialDelayMillis(18) // 6 PM is 18 in 24-hour format
+        val workRequest6PM = OneTimeWorkRequestBuilder<WeatherUploadWorker>()
+            .setInitialDelay(initialDelay6PM, TimeUnit.MILLISECONDS)
+            .setConstraints(workerConstraints)
+            .addTag("weather_upload_6pm_tag") // Optional tag
+            .setInputData(workDataOf("SCHEDULED_HOUR" to 18)) // Pass the scheduled hour
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "weather_upload_6pm_work", // Unique name for the 6 PM worker
+            ExistingWorkPolicy.REPLACE, // Replace if existing
+            workRequest6PM
+        )
+        Log.d("WorkScheduler", "6 PM WeatherUploadWorker scheduled with initial delay: $initialDelay6PM ms (approx ${TimeUnit.MILLISECONDS.toHours(initialDelay6PM)} hours)")
     }
 
     private fun isLocationEnabled(): Boolean{
@@ -130,13 +159,13 @@ class MainActivity : AppCompatActivity() {
             val mLastLocation: Location? = locationResult.lastLocation
             val latitude = mLastLocation?.latitude
             val longitude = mLastLocation?.longitude
-            /*Log.i("bhai","$latitude")
-            Log.i("behen","$longitude")*/
-            getWeatherDetail(latitude!!, longitude!!)
+            Log.i("DATA-LOCATION","$latitude")
+            Log.i("DATA-LOCATION","$longitude")
+            weatherDetail(latitude!!, longitude!!)
         }
     }
 
-    private fun getWeatherDetail(latitude: Double, longitude: Double){
+    private fun weatherDetail(latitude: Double, longitude: Double){
         if(Constants.isNetworkAvailable(this@MainActivity)){
             /*Toast.makeText(this@MainActivity,"Ok!!",Toast.LENGTH_SHORT).show()*/
             val retrofit: Retrofit = Retrofit.Builder()
@@ -196,6 +225,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this@MainActivity,"No!!",Toast.LENGTH_SHORT).show()
         }
     }
+
 
     private fun showRationalDialogForPermissions(){
         AlertDialog.Builder(this).setMessage(
@@ -263,6 +293,7 @@ class MainActivity : AppCompatActivity() {
             binding?.tvSunsetTime?.text = unixTime(weatherList.sys.sunset)
             binding?.tvMax?.text = weatherList.main.temp_max.toString() + " max"
             binding?.tvMin?.text = weatherList.main.temp_min.toString() + " min"
+            binding?.currentTime?.text = Constants.getCurrentTimeStamp()
         }
 
     }

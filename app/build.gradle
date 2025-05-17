@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace 'my.project.weatherapp'
-    compileSdk 33
+    compileSdk 34
 
     defaultConfig {
         applicationId "my.project.weatherapp"
         minSdk 24
-        targetSdk 33
+        targetSdk 34
         versionCode 1
         versionName "1.0"
 
@@ -33,11 +33,22 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+    packagingOptions {
+        resources {
+            pickFirsts.add('META-INF/NOTICE.md')
+            pickFirsts.add('META-INF/LICENSE.md')
+        }
+    }
 }
 
 dependencies {
-    implementation 'androidx.work:work-runtime-ktx:2.10.1'
+    implementation 'androidx.work:work-runtime-ktx:2.8.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2"
+
+
+    implementation 'com.sun.mail:android-mail:1.6.7'
+    implementation 'com.sun.mail:android-activation:1.6.7'
 
     implementation 'com.karumi:dexter:6.2.3'
     implementation 'com.google.code.gson:gson:2.10'
