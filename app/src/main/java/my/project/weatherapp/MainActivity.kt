@@ -17,13 +17,17 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
-import android.view.WindowManager
 import android.widget.Toast
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.gson.Gson
+import com.google.gson.JsonObject
 import com.karumi.dexter.Dexter
 import com.karumi.dexter.MultiplePermissionsReport
 import com.karumi.dexter.PermissionToken
@@ -31,12 +35,14 @@ import com.karumi.dexter.listener.PermissionRequest
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener
 import my.project.weatherapp.databinding.ActivityMainBinding
 import my.project.weatherapp.models.WeatherResponse
+import my.project.weatherapp.network.ScheduledWeatherService
 import my.project.weatherapp.network.WeatherService
+import org.json.JSONObject
 import retrofit2.*
 import retrofit2.converter.gson.GsonConverterFactory
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.properties.Delegates
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
@@ -58,6 +64,19 @@ class MainActivity : AppCompatActivity() {
         setUpUI()
         isLocationPermissionGranted()
 
+        val workerConstraints = androidx.work.Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val initialDelayMillis = Constants.getInitialDelay(6)
+        val periodWorkRequest = PeriodicWorkRequestBuilder<WeatherUploadWorker>(12, TimeUnit.HOURS)
+            .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+            .setConstraints(workerConstraints)
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "weather_upload_work",
+            ExistingPeriodicWorkPolicy.KEEP,
+            periodWorkRequest
+        )
     }
 
     private fun isLocationEnabled(): Boolean{
@@ -94,7 +113,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun  requestLocationData(){
+    private fun requestLocationData(){
         val mLocationRequest = com.google.android.gms.location.LocationRequest()
         mLocationRequest.priority = com.google.android.gms.location.LocationRequest.PRIORITY_HIGH_ACCURACY
         mLocationRequest.interval = 0
@@ -113,11 +132,11 @@ class MainActivity : AppCompatActivity() {
             val longitude = mLastLocation?.longitude
             /*Log.i("bhai","$latitude")
             Log.i("behen","$longitude")*/
-            weatherDetail(latitude!!, longitude!!)
+            getWeatherDetail(latitude!!, longitude!!)
         }
     }
 
-    private fun weatherDetail(latitude: Double, longitude: Double){
+    private fun getWeatherDetail(latitude: Double, longitude: Double){
         if(Constants.isNetworkAvailable(this@MainActivity)){
             /*Toast.makeText(this@MainActivity,"Ok!!",Toast.LENGTH_SHORT).show()*/
             val retrofit: Retrofit = Retrofit.Builder()

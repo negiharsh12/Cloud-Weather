@@ -1,6 +1,7 @@
 package my.project.weatherapp
 
 import android.content.Context
+import android.icu.util.Calendar
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -38,4 +39,21 @@ object Constants {
             return networkInfo != null && networkInfo.isConnectedOrConnecting
         }
     }
+
+    fun getInitialDelay(targetHour: Int, targetMinute: Int = 0): Long {
+        val now = Calendar.getInstance()
+        val scheduled = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, targetHour)
+            set(Calendar.MINUTE, targetMinute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        if (scheduled.before(now)) {
+            scheduled.add(Calendar.DAY_OF_MONTH, 1)
+        }
+
+        return scheduled.timeInMillis - now.timeInMillis
+    }
+
 }
