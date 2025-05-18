@@ -44,9 +44,13 @@ import my.project.weatherapp.Constants.TAG
 import my.project.weatherapp.Constants.getCurrentTimeStamp
 import my.project.weatherapp.databinding.ActivityMainBinding
 import my.project.weatherapp.models.WeatherResponse
+import my.project.weatherapp.network.GcsUploader
 import my.project.weatherapp.network.WeatherService
 import retrofit2.*
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -69,6 +73,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var mSharedPreferences: SharedPreferences
 
+    private lateinit var gcsUploader: GcsUploader
+    private val cloudFunctionBaseUrl = "https://generate-signed-url-for-data-upload-611260698276.asia-south2.run.app"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -82,7 +89,9 @@ class MainActivity : AppCompatActivity() {
         binding?.btnUploadToCloud?.setOnClickListener {
             val weatherData = mSharedPreferences.getString(Constants.WEATHER_RESPONSE_DATA, null)
             if (!weatherData.isNullOrBlank()) {
-                uploadDataToCloud()
+                gcsUploader = GcsUploader(this@MainActivity)
+                gcsUploader.initialize(cloudFunctionBaseUrl)
+
             } else {
                 Toast.makeText(
                     this@MainActivity,
@@ -92,6 +101,100 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    }
+
+    private fun simulateGettingWeatherDataAndUpload() {
+        // todo: 1st we will refresh the data and then proceed further
+
+        uploadWeatherData("")
+    }
+
+    private fun uploadWeatherData(jsonData: String) {
+        lifecycleScope.launch {
+            val fileUri: Uri? = saveJsonToTempFile(jsonData)
+            if (fileUri == null) {
+                Log.e("UploadFlow", "Failed to save JSON data to temporary file")
+                // TODO: Show error message to user
+                return@launch
+            }
+
+            val fileName = "weather_data_${System.currentTimeMillis()}.json" // Choose a suitable file name
+            val contentType = "application/json"
+
+            // Step 2: Get your authentication token
+            // TODO: Replace with your actual logic to get the auth token
+            val authToken: String? = getAuthenticationToken() // !!! IMPLEMENT THIS FUNCTION !!!
+
+            if (authToken == null) {
+                Log.e("UploadFlow", "Failed to get authentication token")
+                // TODO: Show error message to user
+                // TODO: Clean up the temporary file if you created one
+                return@launch
+            }
+
+            // Step 3: Call the Cloud Run function to get the signed URL
+            val signedUrl = gcsUploader.getSignedUrlFromCloudFunction(
+                fileName,
+                contentType,
+                authToken
+            )
+
+            if (signedUrl != null) {
+                // Step 4: Use the signed URL to upload the file directly to GCS
+                gcsUploader.uploadFile(signedUrl, fileUri, contentType) { result ->
+                    result.onSuccess {
+                        // Handle successful upload
+                        Log.d("UploadFlow", "JSON data uploaded successfully to GCS!")
+                        // TODO: Clean up the temporary file if you created one
+                        deleteTempFile(fileUri)
+                        // TODO: Notify your backend or update UI as needed
+                    }.onFailure { error ->
+                        // Handle upload failure
+                        Log.e("UploadFlow", "JSON data upload failed: ${error.message}")
+                        // TODO: Show error message to user
+                        // TODO: Clean up the temporary file if you created one
+                        deleteTempFile(fileUri)
+                    }
+                }
+            } else {
+                // Handle the case where getting the signed URL failed
+                Log.e("UploadFlow", "Failed to get signed URL for JSON data")
+                // TODO: Show error message to user
+                // TODO: Clean up the temporary file if you created one
+                deleteTempFile(fileUri)
+            }
+        }
+    }
+
+    // Helper function to save JSON string to a temporary file and return its Uri
+    private fun saveJsonToTempFile(jsonData: String): Uri? {
+        return try {
+            val tempFile = File.createTempFile(
+                "weather_data_", // Prefix
+                ".json",         // Suffix
+                cacheDir         // Directory (using cacheDir is good for temporary files)
+            )
+            FileOutputStream(tempFile).use { fos ->
+                fos.write(jsonData.toByteArray())
+            }
+            Uri.fromFile(tempFile)
+        } catch (e: IOException) {
+            Log.e("UploadFlow", "Error saving JSON to temp file: ${e.message}", e)
+            null
+        }
+    }
+
+    // Helper function to delete the temporary file
+    private fun deleteTempFile(fileUri: Uri) {
+        try {
+            val file = File(fileUri.path ?: return)
+            if (file.exists()) {
+                file.delete()
+                Log.d("UploadFlow", "Temporary file deleted: ${file.absolutePath}")
+            }
+        } catch (e: Exception) {
+            Log.e("UploadFlow", "Error deleting temporary file: ${e.message}", e)
+        }
     }
 
     private fun isLocationEnabled(): Boolean{
