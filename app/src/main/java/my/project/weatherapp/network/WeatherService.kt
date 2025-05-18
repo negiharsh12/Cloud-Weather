@@ -2,16 +2,17 @@ package my.project.weatherapp.network
 
 import my.project.weatherapp.models.WeatherResponse
 import retrofit2.Call
+import retrofit2.Response
 import retrofit2.http.GET
 import retrofit2.http.Query
 
 interface WeatherService {
 
     @GET("2.5/weather")
-    fun getWeather(
+    suspend fun getWeather(
         @Query("lat") lat: Double,
         @Query("lon") lon: Double,
         @Query("units") units: String?,
         @Query("appId") appId: String?
-    ) : Call<WeatherResponse>
+    ) : Response<WeatherResponse>
 }

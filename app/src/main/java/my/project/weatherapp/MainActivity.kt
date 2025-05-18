@@ -80,8 +80,18 @@ class MainActivity : AppCompatActivity() {
         isLocationPermissionGranted()
 
         binding?.btnUploadToCloud?.setOnClickListener {
-            uploadDataToCloud()
+            val weatherData = mSharedPreferences.getString(Constants.WEATHER_RESPONSE_DATA, null)
+            if (!weatherData.isNullOrBlank()) {
+                uploadDataToCloud()
+            } else {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Please refresh the data and wait for a few seconds before uploading.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
+
     }
 
     private fun isLocationEnabled(): Boolean{
@@ -141,9 +151,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun weatherDetail(latitude: Double, longitude: Double){
+    /*private fun weatherDetail(latitude: Double, longitude: Double){
         if(Constants.isNetworkAvailable(this@MainActivity)){
-            /*Toast.makeText(this@MainActivity,"Ok!!",Toast.LENGTH_SHORT).show()*/
+            *//*Toast.makeText(this@MainActivity,"Ok!!",Toast.LENGTH_SHORT).show()*//*
             val retrofit: Retrofit = Retrofit.Builder()
                 .baseUrl(Constants.BASE_URL)
                 .addConverterFactory(GsonConverterFactory.create())
@@ -200,7 +210,44 @@ class MainActivity : AppCompatActivity() {
         else{
             Toast.makeText(this@MainActivity,"No!!",Toast.LENGTH_SHORT).show()
         }
+    }*/
+
+    private fun weatherDetail(latitude: Double, longitude: Double) {
+        if (!Constants.isNetworkAvailable(this@MainActivity)) {
+            Toast.makeText(this, "No internet connection", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                showCustomProgressDialog()
+
+                val retrofit = Retrofit.Builder()
+                    .baseUrl(Constants.BASE_URL)
+                    .addConverterFactory(GsonConverterFactory.create())
+                    .build()
+
+                val service = retrofit.create(WeatherService::class.java)
+                val response = service.getWeather(latitude, longitude, Constants.METRIC_UNIT, Constants.APP_ID)
+
+                hideProgressDialog()
+
+                if (response.isSuccessful) {
+                    response.body()?.let { weather ->
+                        val weatherResponseJson = Gson().toJson(weather)
+                        mSharedPreferences.edit().putString(Constants.WEATHER_RESPONSE_DATA, weatherResponseJson).apply()
+                        setUpUI()
+                    }
+                } else {
+                    Log.e("Weather", "Error ${response.code()}")
+                }
+            } catch (e: Exception) {
+                hideProgressDialog()
+                Log.e("Weather", "Exception: ${e.message}")
+            }
+        }
     }
+
 
 
     private fun showRationalDialogForPermissions(){
