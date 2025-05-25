@@ -18,10 +18,6 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.Toast
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationResult
@@ -34,16 +30,16 @@ import com.karumi.dexter.listener.PermissionRequest
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.workDataOf
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import my.project.weatherapp.Constants.TAG
 import my.project.weatherapp.Constants.getCurrentTimeStamp
 import my.project.weatherapp.databinding.ActivityMainBinding
 import my.project.weatherapp.models.WeatherResponse
+import my.project.weatherapp.network.Firebase
 import my.project.weatherapp.network.GcsUploader
 import my.project.weatherapp.network.WeatherService
 import retrofit2.*
@@ -62,6 +58,7 @@ import javax.mail.Session
 import javax.mail.Transport
 import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimeMessage
+import kotlin.math.log
 
 class MainActivity : AppCompatActivity() {
 
@@ -81,17 +78,25 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding?.root)
 
-        mFusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
-        mSharedPreferences = getSharedPreferences(Constants.PREFERENCE_NAME, Context.MODE_PRIVATE)
-        setUpUI()
-        isLocationPermissionGranted()
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        if(currentUser != null) { // no user signed in
+            startActivity(Intent(this@MainActivity, SignInScreen::class.java))
+        }
+        else { // user available
+            mFusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
+            mSharedPreferences = getSharedPreferences(Constants.PREFERENCE_NAME, Context.MODE_PRIVATE)
+            setUpUI()
+            isLocationPermissionGranted()
+            Toast.makeText(this, "${currentUser}", Toast.LENGTH_SHORT).show()
+        }
+        /*Log.e("Client_ID", "${R.string.default_web_client_id}")*/
 
         binding?.btnUploadToCloud?.setOnClickListener {
             val weatherData = mSharedPreferences.getString(Constants.WEATHER_RESPONSE_DATA, null)
             if (!weatherData.isNullOrBlank()) {
                 gcsUploader = GcsUploader(this@MainActivity)
                 gcsUploader.initialize(cloudFunctionBaseUrl)
-
+                sendMail()
             } else {
                 Toast.makeText(
                     this@MainActivity,
@@ -107,6 +112,10 @@ class MainActivity : AppCompatActivity() {
         // todo: 1st we will refresh the data and then proceed further
 
         uploadWeatherData("")
+    }
+
+    private fun getAuthenticationToken(): String {
+        return ""
     }
 
     private fun uploadWeatherData(jsonData: String) {
